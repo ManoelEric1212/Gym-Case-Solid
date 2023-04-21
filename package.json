@@ -1,0 +1,29 @@
+{
+  "name": "ignite-4-solid",
+  "version": "1.0.0",
+  "description": "Gympass style app.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ManoelEric1212/Ignite-4-solid.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ManoelEric1212/Ignite-4-solid/issues"
+  },
+  "homepage": "https://github.com/ManoelEric1212/Ignite-4-solid#readme",
+  "devDependencies": {
+    "@types/node": "^18.15.13",
+    "tsup": "^6.7.0",
+    "tsx": "^3.12.6",
+    "typescript": "^5.0.4"
+  },
+  "dependencies": {
+    "fastify": "^4.15.0"
+  }
+}
