@@ -410,7 +410,7 @@ export async function register(request: FastifyRequest, reply: FastifyReply){
 ```
 - Usando o Zod 
 
-Podemos usar o Zod para tratar os erros não mapeados na aplicação, estrturando melhor  a saída do fornecida pelo Zod.
+Podemos usar o Zod para tratar os erros não mapeados na aplicação, estruturando melhor  a saída do fornecida pelo Zod.
 
 ```js
 app.setErrorHandler((error,_,reply)=>{
