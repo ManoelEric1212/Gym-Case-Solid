@@ -350,6 +350,80 @@ export async function register(request: FastifyRequest, reply: FastifyReply){
 }
 ```
 ### Lidando com erros na aplicação
+- Criar um arquivo para os tipos de erros. Exemplo -> errors/user-already-exists-error.ts
 
+```js
+export class UserAlreadyExistsError extends Error{
+  constructor(){
+    super('E-mail already exists!')
+  }
+}
+```
+
+- No useCase  
+
+```js
+export class RegisterUseCase {
+  constructor (private usersRepository: UsersRepository) {}
+  async execute({ name,email,password }:RegisterUseCaseRequest) {
+    const password_hash = await hash(password, 6);
+    const userWithSameEmail = await this.usersRepository.findByEmail(email)
+    if(userWithSameEmail){
+      throw new UserAlreadyExistsError()
+    }
+    await this.usersRepository.create({
+      name,
+      email,
+      password_hash,
+    })
+  
+  }
+}
+
+```
+
+- No controller
+
+```js
+export async function register(request: FastifyRequest, reply: FastifyReply){
+  const registerBodySchema = z.object({
+    name: z.string(),
+    email: z.string().email(),
+    password: z.string().min(6),
+  })
+  const {name, email, password} = registerBodySchema.parse(request.body)
+
+  try {
+    const prismaUsersRepository = new PrismaUsersRepository();
+    const registerUseCase = new RegisterUseCase(prismaUsersRepository)
+    await registerUseCase.execute({name,email,password})
+  } catch (err) {
+    if(err instanceof UserAlreadyExistsError){
+      return reply.status(409).send({message: err.message})
+    }
+    throw err
+    
+  }
+  return reply.status(201).send()
+}
+
+```
 - Usando o Zod 
-- Erros já conehcidos
+
+Podemos usar o Zod para tratar os erros não mapeados na aplicação, estrturando melhor  a saída do fornecida pelo Zod.
+
+```js
+app.setErrorHandler((error,_,reply)=>{
+  if(error instanceof ZodError){
+    return reply.status(400).send({message: 'Validation error.', issues: error.format()})
+  }
+  if(env.NODE_ENV !== "production"){
+    console.error(error)
+  } else {
+    // Fazer um log para uma ferramenta externa como DataLog/NewRelic/Sentry
+  }
+
+  return reply.status(500).send({message: 'Internal server error!!'})
+
+})
+```
