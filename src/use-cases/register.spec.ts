@@ -33,7 +33,7 @@ describe('Register Use Case', ()=>{
 
   })
 
-  it('should not be able to register with smae email twice', async ()=>{
+  it('should not be able to register with same email twice', async ()=>{
     const usersRepository = new InMemoryUsersRepository()
     const registerUseCase = new RegisterUseCase(usersRepository)
     const email = 'joao@gmail.com'
@@ -44,7 +44,7 @@ describe('Register Use Case', ()=>{
       password: '123456',
     })
     
-    expect(()=>
+    await expect(()=>
       registerUseCase.execute({
         name: 'João',
         email,
