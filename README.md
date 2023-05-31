@@ -427,3 +427,205 @@ app.setErrorHandler((error,_,reply)=>{
 
 })
 ```
+
+## Estruturando testes na aplicação 
+
+**Testes unitários:** É a forma de se testar unidades individuais de código fonte. Unidades podem ser métodos, classes, funcionalidades, módulos, etc. Depende muito do que é a menor parte que seu Software pode ser testado.
+
+**Testes de integração:** É a forma de se testar a combinação das unidades em conjunto.
+
+Ou seja, os testes unitários nunca irão vir a ter relação com o banco de dados propriamente dito, seguindo a arquitetura projetada nesse projeto, ao passar um repository, estou testando o comportamento de integração do caso de uso com o prisma em si, ou seja, teste de integração.
+
+
+Para essa plicação em específico, irá ser feito o uso do vitest, uma lib para estruturação de testes em geral.
+Link para documentação: [Documentação vitest](https://vitest.dev/guide/features.html)
+
+- Instalação do vitest 
+```
+npm i vitest vite-tsconfig-paths -D
+```
+- Configuração do ambiente vite.config.ts
+
+```js
+import {defineConfig} from 'vitest/config'
+import tsconfigPaths from 'vite-tsconfig-paths'
+
+export default defineConfig({
+  plugins: [tsconfigPaths()],
+})
+```
+- Configuração do script de test (No arquivo package.json)
+```
+ "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsup src --out-dir build",
+    "start": "node build/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+```
+
+- Estruturando um teste para o caso de uso de registro
+
+Categorizando o teste: describe('Register Use Case')
+Definindo escopo do teste, ou seja, o que deve acontecer: it('should hash user password upon registration')
+
+Para iniciar um teste unitário, ao invés de enviar diretamente um repository com dependência no caso de uso, faz-se o uso da estrutura in-memoryy. [In-memory](https://martinfowler.com/eaaCatalog/repository.html) é uma estrutura que simula um repository com suas funcionalidades.
+
+-Crinado um In-memory repository
+
+```js
+import { User, Prisma } from "@prisma/client";
+import { UsersRepository } from "../users-repository";
+
+export class InMemoryUsersRepository implements UsersRepository {
+  public items: User[] =[]
+
+  async findByEmail(email: string) {
+    const user = this.items.find(item => item.email === email)
+    if(!user) {
+      return null
+    }
+    return user
+  }
+
+ async  create(data: Prisma.UserCreateInput) {
+    const user = {
+      id: 'user-1',
+      name: data.name,
+      email: data.email,
+      password_hash: data.password_hash,
+      created_at: new Date(),
+    }
+    this.items.push(user)
+    return user
+  }
+}
+```
+-  Fazendo o uso do In-memory-repository no caso de teste
+
+```js
+
+import { describe, expect, it} from"vitest"
+import { RegisterUseCase } from "./register"
+import { compare } from "bcryptjs"
+import { InMemoryUsersRepository } from "../repositories/in-memory/in-memory-users-repository"
+import { UserAlreadyExistsError } from "./errors/user-already-exists-error"
+
+describe('Register Use Case', ()=>{
+  it('should be able to register', async ()=>{
+    const usersRepository = new InMemoryUsersRepository()
+    const registerUseCase = new RegisterUseCase(usersRepository)
+    const {user} = await registerUseCase.execute({
+      name: 'João',
+      email: 'joao@gmail.com',
+      password: '123456',
+    })
+
+    expect(user.id).toEqual(expect.any(String))
+
+  })
+  it('should hash user password upon registration', async ()=>{
+    const usersRepository = new InMemoryUsersRepository()
+    const registerUseCase = new RegisterUseCase(usersRepository)
+    const {user} = await registerUseCase.execute({
+      name: 'João',
+      email: 'joao@gmail.com',
+      password: '123456',
+    })
+    const isPasswordCorrectlyHashed = await compare(
+      '123456',
+      user.password_hash,
+    )
+    expect(isPasswordCorrectlyHashed).toBe(true)
+
+  })
+
+  it('should not be able to register with same email twice', async ()=>{
+    const usersRepository = new InMemoryUsersRepository()
+    const registerUseCase = new RegisterUseCase(usersRepository)
+    const email = 'joao@gmail.com'
+
+    await registerUseCase.execute({
+      name: 'João',
+      email,
+      password: '123456',
+    })
+    
+    expect(()=>
+      registerUseCase.execute({
+        name: 'João',
+        email,
+        password: '123456',
+      }),
+    ).rejects.toBeInstanceOf(UserAlreadyExistsError)
+
+  })
+})
+
+```
+
+- Gerando coverage de testes (metrificando a qualidade do teste em si )
+
+Para metrificar a qualidade dos testes gerados na aplicação, se faz uso do coverage. Porém, antes é necessário configurar um novo script no package.json
+
+
+```js
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsup src --out-dir build",
+    "start": "node build/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+```
+
+- Instalação do pacote referente:
+```
+npm i @vitest/coverage-c8 
+```
+
+Após rodar o npm run test:coverage, haverá um feedback de cobertura dos testes dos arquivos. Exemplo:
+
+```
+ ✓ src/use-cases/register.spec.ts (3)
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 1 skipped (3)
+   Start at  23:12:09
+   Duration  4.60s (transform 370ms, setup 0ms, collect 491ms, tests 117ms, environment 1ms, prepare 1.32s)
+
+ % Coverage report from c8
+--------------------------------|---------|----------|---------|---------|-------------------
+File                            | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+--------------------------------|---------|----------|---------|---------|-------------------
+All files                       |   92.18 |    71.42 |   83.33 |   92.18 |                   
+ repositories/in-memory         |   96.15 |       75 |     100 |   96.15 |                   
+  in-memory-users-repository.ts |   96.15 |       75 |     100 |   96.15 | 12                
+ use-cases                      |   93.93 |    66.66 |     100 |   93.93 |                   
+  register.ts                   |   93.93 |    66.66 |     100 |   93.93 | 21-22             
+ use-cases/errors               |      60 |      100 |       0 |      60 |                   
+  user-already-exists-error.ts  |      60 |      100 |       0 |      60 | 3-4               
+--------------------------------|---------|----------|---------|---------|-------------------
+```
+
+- Ferramenta Vitest-UI
+
+Instalação do pacote
+```
+npm i -D @vitest/ui
+```
+
+Configurando novo script: 
+```js
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsup src --out-dir build",
+    "start": "node build/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui"
+  },
+```
