@@ -2,6 +2,7 @@
   "conventionalCommits.scopes": [
     "Projeto",
     "Database",
-    "Users"
+    "Users",
+    "Authetificate"
   ]
 }
