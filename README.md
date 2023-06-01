@@ -2,7 +2,7 @@
 
 ## Requisitos funcionais
 
-- [ ] Deve ser possível se cadastrar;
+- [X] Deve ser possível se cadastrar;
 - [ ] Deve ser possível se autenticar;
 - [ ] Deve ser possível obter o perfil de um usuário logado;
 - [ ] Deve ser possível obter o número de check-ins realizados pelo usuário logado;
@@ -15,7 +15,7 @@
 
 ## Regras de negócio
 
-- [ ] O usuário não pode se cadastrar com um e-mail duplicado;
+- [X] O usuário não pode se cadastrar com um e-mail duplicado;
 - [ ] O usuário não pode fazer 2 check-ins no mesmo dia;
 - [ ] O usuário não pode fazer check-in se não estiver perto(100m) da academia;
 - [ ] O check-in só pode ser validado até 20 minutos após criado;
@@ -24,8 +24,8 @@
 
 ## Requisitos não funcionais
 
-- [ ] A senha do usuário precisa estar criptografada;
-- [ ] Os dados da aplicação precisam estar persistidos em um banco PostgresSQL;
+- [X] A senha do usuário precisa estar criptografada;
+- [X] Os dados da aplicação precisam estar persistidos em um banco SQLite;
 - [ ] Todas as listas devem estar paginas com 20 itens por página;
 - [ ] O usuário deve ser identificado por um JWT (JSON Web Token);
 
@@ -628,4 +628,213 @@ Configurando novo script:
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui"
   },
+```
+## Criando fluxo para autenticação
+
+-Estruturar o caso de uso de autenticação 
+
+O caso de uso de autenticação segue o fluxo de executar uma função assíncrona execute(), que faz uso do repositoryUser, e faz-se algumas validações como: Existência do usuário e senha correta.
+
+```js
+
+import { compare } from "bcryptjs";
+import { UsersRepository } from "../repositories/users-repository";
+import { InvalidCredentialsError } from "./errors/invalid-credentials-error";
+import { User } from "@prisma/client";
+
+interface AuthenticateUseCaseRequest {
+  email: string;
+  password: string;
+
+}
+interface AuthenticateUseCaseResponse {
+  user: User
+}
+
+export class AuthenticateUseCase {
+  constructor(
+    private usersRepository: UsersRepository,
+  ){}
+
+  async execute({email, password}: AuthenticateUseCaseRequest): Promise<AuthenticateUseCaseResponse>{
+    const user = await this.usersRepository.findByEmail(email);
+    if(!user){
+      throw new InvalidCredentialsError()
+    }
+    const doesPasswordMatches = await compare(password, user.password_hash)
+    if(!doesPasswordMatches){
+      throw new InvalidCredentialsError()
+    }
+
+    return {
+      user,
+    }
+
+  }
+}
+
+```
+
+- Estruturação do erro 
+
+```js
+
+export class InvalidCredentialsError extends Error {
+  constructor(){
+    super('Invalid credentials')
+  }
+}
+
+```
+
+- Criando estrutura de testes para o novo caso de uso
+
+```js
+
+import {describe,it,expect} from 'vitest'
+import { AuthenticateUseCase } from './authenticate'
+import { InMemoryUsersRepository } from '../repositories/in-memory/in-memory-users-repository'
+import { hash } from 'bcryptjs'
+import { InvalidCredentialsError } from './errors/invalid-credentials-error'
+
+
+describe('Authenticate', ()=>{
+  it('shold be able to authenticate', async ()=> {
+    const usersRepository = new InMemoryUsersRepository()
+    const authenticateUseCase = new AuthenticateUseCase(usersRepository)
+
+    await usersRepository.create({
+      name: 'Jhon ',
+      email: 'jhon@example.com',
+      password_hash: await hash('123456', 6),
+    })
+
+    const { user } = await authenticateUseCase.execute({
+      email: 'jhon@example.com',
+      password: '123456',
+    })
+
+    expect(user.id).toEqual(expect.any(String))
+
+  })
+  it('shold not to be able to authenticate with wrong email', async ()=> {
+    const usersRepository = new InMemoryUsersRepository()
+    const authenticateUseCase = new AuthenticateUseCase(usersRepository)
+    expect(()=>
+      authenticateUseCase.execute({
+        email: 'jhon@example.com',
+        password: '123456',
+      })
+    ).rejects.toBeInstanceOf(InvalidCredentialsError)
+  })
+
+  it('shold not to be able to authenticate with wrong password', async ()=> {
+    const usersRepository = new InMemoryUsersRepository()
+    const authenticateUseCase = new AuthenticateUseCase(usersRepository)
+    await usersRepository.create({
+      name: 'Jhon ',
+      email: 'jhon@example.com',
+      password_hash: await hash('123456', 6),
+    })
+    expect(()=>
+      authenticateUseCase.execute({
+        email: 'jhon@example.com',
+        password: '123',
+      })
+    ).rejects.toBeInstanceOf(InvalidCredentialsError)
+  })
+})
+
+```
+
+- Controller de autenticação
+
+```js
+import { FastifyRequest, FastifyReply} from 'fastify'
+import { z } from 'zod'
+import { PrismaUsersRepository } from '../../repositories/prisma/prisma-users-repository'
+import { AuthenticateUseCase } from '../../use-cases/authenticate'
+import { InvalidCredentialsError } from '../../use-cases/errors/invalid-credentials-error'
+
+
+export async function authenticate(request: FastifyRequest, reply: FastifyReply){
+  const authenticateBodySchema = z.object({
+    email: z.string().email(),
+    password: z.string().min(6),
+  })
+  const { email, password} = authenticateBodySchema.parse(request.body)
+
+  try {
+    const usersRepository = new PrismaUsersRepository();
+    const authenticateUseCase = new AuthenticateUseCase(usersRepository)
+    await authenticateUseCase.execute({email,password})
+  } catch (err) {
+    if(err instanceof InvalidCredentialsError){
+      return reply.status(400).send({message: err.message})
+    }
+    throw err
+    
+  }
+  return reply.status(200).send()
+
+}
+
+```
+
+- Refatorando instâncias de testes 
+
+Recriando variáveis repetitivas em memória antes de executar cada teste. Criar as variáveis de forma mútavel e global, sem inicializar apenas apontando o tipo da variável. Após isso, fazer uso da estrutura beforeEach do vitest.
+
+```js
+
+
+let usersRepository: InMemoryUsersRepository;
+let registerUseCase: RegisterUseCase;
+describe('Register Use Case', ()=>{
+
+  beforeEach(()=> {
+    usersRepository = new InMemoryUsersRepository()
+    registerUseCase = new RegisterUseCase(usersRepository)
+  })
+  it('should be able to register', async ()=>{
+    const {user} = await registerUseCase.execute({
+      name: 'João',
+      email: 'joao@gmail.com',
+      password: '123456',
+    })
+
+    expect(user.id).toEqual(expect.any(String))
+
+  })
+  
+```
+
+## Implementação do factory pattern 
+
+O Factory Pattern, é um pattern que constrói depepndências comuns, no caso do useCase, existe useCase que possuem várias dependências, ou seja vários repositorys. Nesse caso, separa-se uma função para fazer essa construção.
+
+```js
+import { PrismaUsersRepository } from "../../repositories/prisma/prisma-users-repository";
+import { RegisterUseCase } from "../register";
+
+export function makeRegisterUseCase(){
+  const prismaUsersRepository = new PrismaUsersRepository();
+  const registerUseCase = new RegisterUseCase(prismaUsersRepository)
+   return registerUseCase
+}
+```
+
+- No controller:
+
+````js
+try {
+    const registerUseCase = makeRegisterUseCase()
+    await registerUseCase.execute({name,email,password})
+  } catch (err) {
+    if(err instanceof UserAlreadyExistsError){
+      return reply.status(409).send({message: err.message})
+    }
+    throw err
+    
+  }
 ```
