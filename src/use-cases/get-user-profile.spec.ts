@@ -28,7 +28,7 @@ describe('Get User profile use case', ()=>{
   })
   it('shold not to be able to get user profile with wrong id', async ()=> {
 
-    expect(()=>
+    await expect(()=>
       getUserProfileUseCase.execute({
         userId: 'non-existing-id'
       })
