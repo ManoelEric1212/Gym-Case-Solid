@@ -16,8 +16,8 @@
 ## Regras de negócio
 
 - [X] O usuário não pode se cadastrar com um e-mail duplicado;
-- [ ] O usuário não pode fazer 2 check-ins no mesmo dia;
-- [ ] O usuário não pode fazer check-in se não estiver perto(100m) da academia;
+- [X] O usuário não pode fazer 2 check-ins no mesmo dia;
+- [X] O usuário não pode fazer check-in se não estiver perto(100m) da academia;
 - [ ] O check-in só pode ser validado até 20 minutos após criado;
 - [ ] O check-in só pode ser validado por uma dministrador;
 - [ ] A academia só pode ser cadastrada por um administrador;
@@ -809,7 +809,7 @@ describe('Register Use Case', ()=>{
   
 ```
 
-## Implementação do factory pattern 
+## Implementação do Factory Pattern 
 
 O Factory Pattern, é um pattern que constrói depepndências comuns, no caso do useCase, existe useCase que possuem várias dependências, ou seja vários repositorys. Nesse caso, separa-se uma função para fazer essa construção.
 
@@ -826,7 +826,7 @@ export function makeRegisterUseCase(){
 
 - No controller:
 
-````js
+```js
 try {
     const registerUseCase = makeRegisterUseCase()
     await registerUseCase.execute({name,email,password})
@@ -838,3 +838,214 @@ try {
     
   }
 ```
+
+## Implementação do TDD Test Driven Development
+
+Fluxo de implementação do TDD, red-> green-> refactor: Causar o erro, fazer funcionar e refatorar.
+
+
+### Primeiro passo é criar no teste a implementação da regra de negócio em si
+Utilizando o exemplo de validação de checkins, onde o usuário não pode fazer dois check-ins no mesmo dia:
+
+
+- RED: Implementar no teste a funcionanlidade em si:
+
+  
+Com o auxílio do mocking do vite, pode-se validar a utilização de datas com as funções de fake Timers e realTimers, onde as datas e o referencial de datas podem ser definidos e resetados após os testes:
+
+No Teste:
+
+```js
+
+beforeEach(()=>{
+    checkInsRepository = new InMemoryCheckInsRepository()
+    sut = new CheckinUseCase(checkInsRepository)
+    vi.useFakeTimers()
+  })
+  afterEach(()=>{
+    vi.useRealTimers()
+  })
+
+
+ it('should not be to check in twice in the same day', async ()=> {
+    vi.setSystemTime(new Date(2022, 0, 20, 8, 0,0))
+    await sut.execute({
+      gymId: 'gym-01',
+      userId: 'user-01'
+    })
+    await expect(()=>
+    sut.execute({
+      gymId: 'gym-01',
+      userId: 'user-01'
+    })).rejects.toBeInstanceOf(Error)
+    
+  })
+
+```
+
+- GREEN: Fazer com o que o teste consiga passar:
+
+Implementar no repositório um método que consiga verificar checkIns com mesmas datas:
+
+```js
+
+async findByUserIdOnDate(userId: string, date: Date) {
+
+    const checkOnSameDate = this.items.find(checkIn => checkIn.user_id === userId)
+    if(!checkOnSameDate){
+      return null
+    }
+    return checkOnSameDate
+  }
+
+
+```
+
+Implementar no useCase essa verificação:
+
+```js
+ async execute({userId, gymId}: CheckInUseCaseRequest): Promise<CheckInUseCaseResponse>{
+    const checkInOnsameDate = await this.checkInsrepository.findByUserIdOnDate(userId, new Date())
+    if(checkInOnsameDate){
+      throw new Error()
+    }
+    const checkIn = await this.checkInsrepository.create({
+      gym_id: gymId,
+      user_id: userId
+    })
+    return {
+      checkIn,
+    }
+
+  }
+
+```
+
+- REFACTOR: Dentro do teste pode-se perceber que  o código em si não seria válido para testar se dois checkins são criados pela mesma pessoa em dias diferentes:
+
+  ```js
+    it('should to be able to check in twice but in different days', async ()=> {
+    vi.setSystemTime(new Date(2022, 0, 20, 8, 0,0))
+    await sut.execute({
+      gymId: 'gym-01',
+      userId: 'user-01'
+    })
+    vi.setSystemTime(new Date(2022, 0, 21, 8, 0,0))
+    const { checkIn } = await sut.execute({
+      gymId: 'gym-01',
+      userId: 'user-01'
+    })
+    expect(checkIn.id).toEqual(expect.any(String))
+    
+  })
+
+  ```
+
+  Dentro do in-memory-check-ins:
+
+  ```js
+    async findByUserIdOnDate(userId: string, date: Date) {
+    const startOfTheDay = dayjs(date).startOf('date')
+    const endOfTheDay = dayjs(date).endOf('date')
+    const checkOnSameDate = this.items.find(checkIn =>{
+      const checkInDate = dayjs(checkIn.created_at)
+      const isOnSameDate = checkInDate.isAfter(startOfTheDay) && checkInDate.isBefore(endOfTheDay)
+
+      return checkIn.user_id === userId && isOnSameDate
+    })
+    if(!checkOnSameDate){
+      return null
+    }
+    return checkOnSameDate
+  }
+
+  ```
+
+  ## Implementação da regra de distância para o checkIn
+
+  Existe a regra, na qual o checkIn realizado pelo cliente só possa ser realizado quando o mesmo estiver a menos de 10 m da academia.
+
+  - Criando o gym-repository:
+```js
+import { Gym } from "@prisma/client";
+
+// Atentar para o uso de uma DTO caso não estiver usando prisma
+export interface GymsRepository {
+
+  findById(id: string): Promise<Gym | null>
+}
+```
+
+  - Criando o in-memory-gym-repository:
+```js
+import { Gym } from "@prisma/client";
+import { GymsRepository } from "../gyms-repositort";
+
+
+
+export class InMemoryGymsRepository implements GymsRepository {
+  
+  public items: Gym[] =[]
+
+  async findById(id: string) {
+    const gym = this.items.find((item)=> item.id === id)
+    if(!gym){
+      return null
+    }
+    return gym
+  }
+
+
+}
+
+```
+
+- Alterando useCase de checkIn
+
+```js
+import { CheckIn} from "@prisma/client";
+import { CheckInsRepository } from "../repositories/check-ins-repository";
+import { GymsRepository } from "../repositories/gyms-repositort";
+import { ResourceNotFoundError } from "./errors/resource-not-found-error";
+
+interface CheckInUseCaseRequest {
+  userId: string;
+  gymId: string;
+  userLatitude: number;
+  userLongitude: number;
+}
+interface CheckInUseCaseResponse {
+  checkIn: CheckIn;
+}
+
+export class CheckinUseCase {
+  constructor(
+    private checkInsrepository: CheckInsRepository,
+    private gymsRepository: GymsRepository,
+  ){}
+
+  async execute({userId, gymId}: CheckInUseCaseRequest): Promise<CheckInUseCaseResponse>{
+
+    const gym =  await this.gymsRepository.findById(gymId)
+    if(!gym){
+      throw new ResourceNotFoundError()
+    }
+    // Calcular a distancia entre o user e a academia 
+
+    const checkInOnsameDate = await this.checkInsrepository.findByUserIdOnDate(userId, new Date())
+    if(checkInOnsameDate){
+      throw new Error()
+    }
+    const checkIn = await this.checkInsrepository.create({
+      gym_id: gymId,
+      user_id: userId
+    })
+    return {
+      checkIn,
+    }
+
+  }
+}
+ ```
+
+-Alterando estrutura do teste 
